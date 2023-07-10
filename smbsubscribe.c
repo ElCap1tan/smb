@@ -5,8 +5,8 @@
 #include <string.h>
 
 #define SERVER_PORT 8080
-#define CLIENT_PORT 8081
 #define MAX_TOPIC_LEN 512
+#define STX '\x02'
 #define MAX_ARGS 2 // Maximal number of arguments that are needed for any given command and thus send to the server.
 
 void print_usage(char *argv[]) {
@@ -60,11 +60,12 @@ void validate_args(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
+    const char stx = STX;
     char buf[MAX_TOPIC_LEN + 1];
     char *hostname;
-    char *topic;
-    struct sockaddr_in *server_addr, rcv_addr;
-    int send_fd, rcv_fd, errcode;
+    char *topic, *msg;;
+    struct sockaddr_in *server_addr;
+    int srv_fd, errcode;
     uint addr_length;
     ssize_t nbytes;
 
@@ -80,13 +81,13 @@ int main(int argc, char *argv[]) {
     server_addr->sin_port = htons(SERVER_PORT);
     addr_length = sizeof(*server_addr);
 
-    send_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (send_fd < 0) {
+    srv_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (srv_fd < 0) {
         perror("Error creating socket");
         return EXIT_FAILURE;
     }
 
-    errcode = connect(send_fd, (const struct sockaddr *) server_addr, addr_length);
+    errcode = connect(srv_fd, (const struct sockaddr *) server_addr, addr_length);
     if (errcode < 0) {
         perror("Error connecting to server");
         return EXIT_FAILURE;
@@ -95,25 +96,16 @@ int main(int argc, char *argv[]) {
     sprintf(buf, "s%s", topic);
     buf[strlen(buf) < MAX_TOPIC_LEN + 1 ? strlen(buf) : MAX_TOPIC_LEN] = '\0';
 
-    sendto(send_fd, buf, strlen(buf), 0, (const struct sockaddr *) server_addr, addr_length);
-
-    rcv_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (rcv_fd < 0) {
-        perror("vlftpd: Error creating socket");
-        return EXIT_FAILURE;
-    }
-
-    memset(&rcv_addr, 0, sizeof(rcv_addr));
-    rcv_addr.sin_family = AF_INET;
-    rcv_addr.sin_addr.s_addr = server_addr->sin_addr.s_addr;
-    rcv_addr.sin_port = server_addr->sin_port = htons(CLIENT_PORT);
-
-    errcode = bind(rcv_fd, (const struct sockaddr *) &rcv_addr, sizeof(rcv_addr));
+    send(srv_fd, buf, strlen(buf), 0);
 
     while (1) {
-        nbytes = recvfrom(rcv_fd, buf, sizeof(buf), 0, NULL, NULL);
+        nbytes = recv(srv_fd, buf, sizeof(buf), 0);
         buf[nbytes] = '\0';
-        puts(buf);
+
+        topic = strtok(buf, &stx);
+        msg = strtok(NULL, &stx);
+
+        printf("[%s] %s\n", topic, msg);
     }
 
     return EXIT_SUCCESS;

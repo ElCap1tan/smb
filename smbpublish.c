@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
     sprintf(buf, "%c%s%c%s", SOH, topic, STX, msg);
     buf[strlen(buf) < MSG_BUF_SIZE ? strlen(buf) : MSG_BUF_SIZE - 1] = '\0';
 
-    sendto(sock_fd, buf, strlen(buf), 0, (const struct sockaddr *) server_addr, addr_length);
+    send(sock_fd, buf, strlen(buf), 0);
 
     return EXIT_SUCCESS;
 }
