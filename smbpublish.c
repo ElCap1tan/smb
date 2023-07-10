@@ -9,10 +9,18 @@
 #define MAX_TOPIC_LEN 512
 #define SOH '\x01'
 #define STX '\x02'
-#define MAX_ARGS 2 // Maximal number of arguments that are needed for any given command and thus send to the server.
+#define TOPIC_SEPARATOR '/'
+#define WILD_CARD "#"
 
 void print_usage(char *argv[]) {
-    printf("Usage: '%s server command [argument1 [argument2]]'\n", argv[0]);
+    printf("Usage: '%s broker topic/subtopic message'\n", argv[0]);
+}
+
+char *spilt_at(char *str, char sep) {
+    char *sep_ptr = strchr(str, sep);
+    if (!sep_ptr) return sep_ptr;
+    sep_ptr[0] = 0;
+    return sep_ptr + 1;
 }
 
 // Resolves a hostname string to the corresponding IP address.
@@ -35,44 +43,54 @@ struct sockaddr_in* resolve_hostname(char *hostname) {
 // Very liberally check arguments for validity to stop the client from sending commands that can't possibly be
 // fulfilled to the server. Only checks the number of provided arguments. If not enough arguments for the given command
 // are provided, exit with failure. Further error handling and reporting is left to the server.
-void validate_args(int argc, char *argv[]) {
+void validate_args(int argc, char *argv[], char **hostname, char **topic, char **subtopic, char** msg) {
     if (argc == 1) {
         print_usage(argv);
         exit(EXIT_SUCCESS);
     }
 
-    if (argc < 3) {
+    if (argc < 4) {
         fprintf(stderr,
-                "You need to supply at least 2 arguments but you provided %d.\n", argc-1);
+                "You need to supply at least 3 arguments but you provided %d.\n", argc-1);
         print_usage(argv);
         exit(EXIT_FAILURE);
     }
-    else if (strcmp(argv[2], "pwd") == 0 || strcmp(argv[2], "dir") == 0) { return; }
-    else if (strcmp(argv[2], "cd") == 0 && argc < 4) {
+
+    *hostname = argv[1];
+
+    // TODO: Prevent wildcard usage
+    if (strcmp(argv[2], "") == 0) {
         fprintf(stderr,
-                "Missing directory argument for cd command.\n");
-        print_usage(argv);
-        exit(EXIT_FAILURE);
-    } else if ((strcmp(argv[2], "get") == 0 || strcmp(argv[2], "put") == 0) && argc < 4) {
-        fprintf(stderr,
-                "Missing file argument for %s command.\n", argv[2]);
-        print_usage(argv);
+                "Topic can't be empty.\n");
         exit(EXIT_FAILURE);
     }
+
+    *topic = argv[2];
+    if (!(*subtopic = spilt_at(*topic, TOPIC_SEPARATOR))) {
+        fprintf(stderr,"You need to provide a subtopic seperated with '%c'\n", TOPIC_SEPARATOR);
+        exit(EXIT_FAILURE);
+    }
+
+    int t;
+    if ((t = strcmp(*topic, "") == 0) || strcmp(*subtopic, "") == 0) {
+        fprintf(stderr,
+                "%s can't be empty.\n", t ? "Topic" : "Subtopic");
+        exit(EXIT_FAILURE);
+    }
+
+    *msg = argv[3];
 }
 
 int main(int argc, char *argv[]) {
     char buf[MSG_BUF_SIZE];
-    char *hostname, *topic, *msg;
+    char *hostname;
+    char *topic, *subtopic, *msg;
     struct sockaddr_in *server_addr;
     int sock_fd, errcode;
     uint addr_length;
     ssize_t nbytes;
 
-    // validate_args(argc, argv);
-
-    // to_send = argc - 2;
-    // if (to_send > MAX_ARGS + 1) { to_send = MAX_ARGS + 1; }
+    validate_args(argc, argv, &hostname, &topic, &subtopic, &msg);
 
     hostname = argv[1];
     topic = argv[2];
@@ -94,10 +112,16 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    sprintf(buf, "%c%s%c%s", SOH, topic, STX, msg);
+    sprintf(buf, "%c%s%c%s%c%s", SOH, topic, TOPIC_SEPARATOR, subtopic, STX, msg);
     buf[strlen(buf) < MSG_BUF_SIZE ? strlen(buf) : MSG_BUF_SIZE - 1] = '\0';
 
-    send(sock_fd, buf, strlen(buf), 0);
+    nbytes = send(sock_fd, buf, strlen(buf), 0);
+    if (nbytes == -1) {
+        perror("smbpublish: send");
+    } else if (nbytes != strlen(buf)) {
+        printf("smbpublish: Failed to send message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(server_addr->sin_addr),
+               ntohs(server_addr->sin_port));
+    }
 
     return EXIT_SUCCESS;
 }
