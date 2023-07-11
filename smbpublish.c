@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define SERVER_PORT 8080
-#define MSG_BUF_SIZE 2048
+#define MSG_BUF_SIZE 4096
 #define MAX_TOPIC_LEN 512
 #define SOH '\x01'
 #define STX '\x02'
@@ -70,12 +70,17 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
         exit(EXIT_FAILURE);
     }
 
+    int t;
+    if ((t = strlen(*topic) > MAX_TOPIC_LEN) || strlen(*subtopic) > MAX_TOPIC_LEN) {
+        fprintf(stderr, "%s to long! Max length is %d.", t ? "Topic" : "Subtopic", MAX_TOPIC_LEN);
+        exit(EXIT_FAILURE);
+    }
+
     if (strcmp(*topic, WILD_CARD) == 0 || strcmp(*subtopic, WILD_CARD) == 0) {
         fprintf(stderr, "Usage of wildcard '%s' is not allowed!", WILD_CARD);
         exit(EXIT_FAILURE);
     }
 
-    int t;
     if ((t = strcmp(*topic, "") == 0) || strcmp(*subtopic, "") == 0) {
         fprintf(stderr,
                 "%s can't be empty.\n", t ? "Topic" : "Subtopic");

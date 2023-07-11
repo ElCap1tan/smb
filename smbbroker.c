@@ -5,7 +5,7 @@
 #include <arpa/inet.h>
 
 #define SERVER_PORT 8080
-#define MSG_BUF_SIZE 2048
+#define MSG_BUF_SIZE 4096
 #define MAX_SUBSCRIBERS 512
 #define MAX_TOPIC_LEN 512
 #define TOPIC_SEPARATOR '/'
@@ -16,8 +16,8 @@
 struct subscription {
     struct in_addr sub_addr;
     uint16_t port;
-    char topic[MAX_TOPIC_LEN];
-    char subtopic[MAX_TOPIC_LEN];
+    char topic[MAX_TOPIC_LEN + 1];
+    char subtopic[MAX_TOPIC_LEN + 1];
 } sub_list[MAX_SUBSCRIBERS];
 
 char *spilt_at(char *str, char sep) {
@@ -153,5 +153,4 @@ int main() {
             }
         }
     }
-    return EXIT_SUCCESS;
 }

@@ -7,8 +7,7 @@
 #include <unistd.h>
 
 #define SERVER_PORT 8080
-#define MSG_BUF_SIZE 2048
-#define MAX_TOPIC_LEN 512
+#define MSG_BUF_SIZE 4096
 #define SOH '\x01'
 #define STX '\x02'
 #define TOPIC_SEPARATOR '/'
@@ -116,6 +115,4 @@ int main(int argc, char *argv[]) {
         printf("[%s] Time published on topic '%s%c%s'...\n", msg, topic, TOPIC_SEPARATOR, subtopic);
         sleep(INTERVAL_SEC);
     }
-
-    return EXIT_SUCCESS;
 }

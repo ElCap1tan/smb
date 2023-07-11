@@ -6,6 +6,7 @@
 #include <errno.h>
 
 #define SERVER_PORT 8080
+#define MSG_BUF_SIZE 4096
 #define MAX_TOPIC_LEN 512
 #define STX '\x02'
 #define TOPIC_SEPARATOR '/'
@@ -73,6 +74,11 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
     }
 
     int t;
+    if ((t = strlen(*topic) > MAX_TOPIC_LEN) || strlen(*subtopic) > MAX_TOPIC_LEN) {
+        fprintf(stderr, "%s to long! Max length is %d.", t ? "Topic" : "Subtopic", MAX_TOPIC_LEN);
+        exit(EXIT_FAILURE);
+    }
+
     if ((t = strcmp(*topic, "") == 0) || strcmp(*subtopic, "") == 0) {
         fprintf(stderr,
                 "%s can't be empty.\n", t ? "Topic" : "Subtopic");
@@ -81,7 +87,7 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
 }
 
 int main(int argc, char *argv[]) {
-    char buf[MAX_TOPIC_LEN * 2 + 2];
+    char buf[MSG_BUF_SIZE];
     char *hostname;
     char *topic, *subtopic, *msg;
     struct sockaddr_in *server_addr;
@@ -165,6 +171,4 @@ int main(int argc, char *argv[]) {
             printf("[%s] %s\n", topic, msg);
         }
     }
-
-    return EXIT_SUCCESS;
 }
