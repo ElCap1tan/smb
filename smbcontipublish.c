@@ -3,6 +3,8 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #define SERVER_PORT 8080
 #define MSG_BUF_SIZE 2048
@@ -11,9 +13,10 @@
 #define STX '\x02'
 #define TOPIC_SEPARATOR '/'
 #define WILD_CARD "#"
+#define INTERVAL_SEC 10
 
 void print_usage(char *argv[]) {
-    printf("Usage: '%s broker topic/subtopic message'\n", argv[0]);
+    printf("Usage: '%s broker'\n", argv[0]);
 }
 
 char *spilt_at(char *str, char sep) {
@@ -43,46 +46,26 @@ struct sockaddr_in* resolve_hostname(char *hostname) {
 // Very liberally check arguments for validity to stop the client from sending commands that can't possibly be
 // fulfilled to the server. Only checks the number of provided arguments. If not enough arguments for the given command
 // are provided, exit with failure. Further error handling and reporting is left to the server.
-void validate_args(int argc, char *argv[], char **hostname, char **topic, char **subtopic, char** msg) {
+void validate_args(int argc, char *argv[], char **hostname) {
     if (argc == 1) {
         print_usage(argv);
         exit(EXIT_SUCCESS);
     }
 
-    if (argc < 4) {
-        fprintf(stderr,
-                "You need to supply at least 3 arguments but you provided %d.\n", argc-1);
-        print_usage(argv);
-        exit(EXIT_FAILURE);
-    }
-
     *hostname = argv[1];
+}
 
-    if (strcmp(argv[2], "") == 0) {
-        fprintf(stderr,
-                "Topic can't be empty.\n");
-        exit(EXIT_FAILURE);
-    }
+char *get_local_time_str() {
+    time_t raw_time;
+    struct tm * time_info;
+    char *time_str;
 
-    *topic = argv[2];
-    if (!(*subtopic = spilt_at(*topic, TOPIC_SEPARATOR))) {
-        fprintf(stderr,"You need to provide a subtopic seperated with '%c'\n", TOPIC_SEPARATOR);
-        exit(EXIT_FAILURE);
-    }
+    time(&raw_time);
+    time_info = localtime(&raw_time);
+    time_str = asctime(time_info);
+    time_str[strlen(time_str) - 1] = 0;
 
-    if (strcmp(*topic, WILD_CARD) == 0 || strcmp(*subtopic, WILD_CARD) == 0) {
-        fprintf(stderr, "Usage of wildcard '%s' is not allowed!", WILD_CARD);
-        exit(EXIT_FAILURE);
-    }
-
-    int t;
-    if ((t = strcmp(*topic, "") == 0) || strcmp(*subtopic, "") == 0) {
-        fprintf(stderr,
-                "%s can't be empty.\n", t ? "Topic" : "Subtopic");
-        exit(EXIT_FAILURE);
-    }
-
-    *msg = argv[3];
+    return time_str;
 }
 
 int main(int argc, char *argv[]) {
@@ -94,7 +77,10 @@ int main(int argc, char *argv[]) {
     uint addr_length;
     ssize_t nbytes;
 
-    validate_args(argc, argv, &hostname, &topic, &subtopic, &msg);
+    validate_args(argc, argv, &hostname);
+
+    topic = "time";
+    subtopic = "germany";
 
     server_addr = resolve_hostname(hostname);
     server_addr->sin_port = htons(SERVER_PORT);
@@ -112,16 +98,23 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    snprintf(buf, sizeof(buf), "%c%s%c%s%c%s", SOH, topic, TOPIC_SEPARATOR, subtopic, STX, msg);
+    while (1) {
+        msg = get_local_time_str();
 
-    nbytes = send(sock_fd, buf, strlen(buf), 0);
-    if (nbytes == -1) {
-        perror("send");
-        return EXIT_FAILURE;
-    } else if (nbytes != strlen(buf)) {
-        fprintf(stderr, "Failed to send message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(server_addr->sin_addr),
-               ntohs(server_addr->sin_port));
-        return EXIT_FAILURE;
+        snprintf(buf, sizeof(buf), "%c%s%c%s%c%s", SOH, topic, TOPIC_SEPARATOR, subtopic, STX, msg);
+
+        nbytes = send(sock_fd, buf, strlen(buf), 0);
+        if (nbytes == -1) {
+            perror("send");
+            return EXIT_FAILURE;
+        } else if (nbytes != strlen(buf)) {
+            fprintf(stderr, "Failed to send message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(server_addr->sin_addr),
+                    ntohs(server_addr->sin_port));
+            return EXIT_FAILURE;
+        }
+
+        printf("[%s] Time published on topic '%s%c%s'...\n", msg, topic, TOPIC_SEPARATOR, subtopic);
+        sleep(INTERVAL_SEC);
     }
 
     return EXIT_SUCCESS;

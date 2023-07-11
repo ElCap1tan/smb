@@ -52,7 +52,7 @@ int main() {
 
     errcode = bind(server_fd, (const struct sockaddr *) &server_addr, sizeof(server_addr));
     if (errcode < 0) {
-        perror("vlftpd: Failed to bind socket");
+        perror("smbbroker: Failed to bind socket");
         return EXIT_FAILURE;
     }
 
@@ -78,8 +78,9 @@ int main() {
 
                 for (int i = 0; i < sub_c; ++i) {
                     sub = &sub_list[i];
-                    if (sub->sub_addr.s_addr == client_addr.sin_addr.s_addr) {
+                    if (sub->sub_addr.s_addr == client_addr.sin_addr.s_addr && sub->port == ntohs(client_addr.sin_port)) {
                         exists = 1;
+                        break;
                     }
                 }
 
