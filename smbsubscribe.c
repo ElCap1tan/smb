@@ -3,12 +3,14 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <errno.h>
 
 #define SERVER_PORT 8080
 #define MAX_TOPIC_LEN 512
 #define STX '\x02'
 #define TOPIC_SEPARATOR '/'
 #define WILD_CARD "#"
+#define TIMEOUT_SECS 15
 
 void print_usage(char *argv[]) {
     printf("Usage: '%s broker topic%csubtopic'\n\n"
@@ -79,10 +81,11 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
 }
 
 int main(int argc, char *argv[]) {
-    char buf[MAX_TOPIC_LEN * 2 + 1];
+    char buf[MAX_TOPIC_LEN * 2 + 2];
     char *hostname;
     char *topic, *subtopic, *msg;
     struct sockaddr_in *server_addr;
+    struct timeval tv;
     int srv_fd, errcode;
     uint addr_length;
     ssize_t nbytes;
@@ -105,19 +108,62 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    sprintf(buf, "s%s%c%s", topic, TOPIC_SEPARATOR, subtopic);
-    buf[strlen(buf) < MAX_TOPIC_LEN * 2 + 1 ? strlen(buf) : MAX_TOPIC_LEN * 2] = '\0';
+    tv.tv_sec = TIMEOUT_SECS;
+    tv.tv_usec = 0;
+    setsockopt(srv_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
-    send(srv_fd, buf, strlen(buf), 0);
+    snprintf(buf, sizeof(buf), "s%s%c%s", topic, TOPIC_SEPARATOR, subtopic);
+
+    puts("Sending subscription request to broker...");
+    do {
+        nbytes = send(srv_fd, buf, strlen(buf), 0);
+        if (nbytes == -1) {
+            perror("send sub request");
+            return EXIT_FAILURE;
+        }
+        nbytes = recv(srv_fd, buf, sizeof(buf), 0);
+        if (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            puts("Didn't receive an acknowledge from the broker. Sending request again...");
+        } else if (nbytes == -1) {
+            perror("recv ack");
+            return EXIT_FAILURE;
+        }
+    } while (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
+
+    if (nbytes >= 0) {
+        buf[nbytes] = '\0';
+        char cmd = buf[0];
+        char *t = &buf[1];
+        if (cmd == 'A') {
+            char *st = spilt_at(t, TOPIC_SEPARATOR);
+            if (strcmp(t, topic) == 0 && strcmp(st, subtopic) == 0) {
+                puts("Request was acknowledged by the broker!");
+            } else {
+                puts("Couldn't confirm a successful request! Exiting...");
+                return EXIT_FAILURE;
+            }
+        }
+    } else {
+        perror("recv ack");
+        return EXIT_FAILURE;
+    }
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    setsockopt(srv_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
     while (1) {
         nbytes = recv(srv_fd, buf, sizeof(buf), 0);
-        buf[nbytes] = '\0';
+        if (nbytes == -1) {
+            perror("recv msg");
+        } else {
+            buf[nbytes] = '\0';
 
-        topic = buf;
-        msg = spilt_at(buf, STX);
+            topic = buf;
+            msg = spilt_at(buf, STX);
 
-        printf("[%s] %s\n", topic, msg);
+            printf("[%s] %s\n", topic, msg);
+        }
     }
 
     return EXIT_SUCCESS;

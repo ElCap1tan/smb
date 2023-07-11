@@ -58,7 +58,6 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
 
     *hostname = argv[1];
 
-    // TODO: Prevent wildcard usage
     if (strcmp(argv[2], "") == 0) {
         fprintf(stderr,
                 "Topic can't be empty.\n");
@@ -68,6 +67,11 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
     *topic = argv[2];
     if (!(*subtopic = spilt_at(*topic, TOPIC_SEPARATOR))) {
         fprintf(stderr,"You need to provide a subtopic seperated with '%c'\n", TOPIC_SEPARATOR);
+        exit(EXIT_FAILURE);
+    }
+
+    if (strcmp(*topic, WILD_CARD) == 0 || strcmp(*subtopic, WILD_CARD) == 0) {
+        fprintf(stderr, "Usage of wildcard '%s' is not allowed!", WILD_CARD);
         exit(EXIT_FAILURE);
     }
 
@@ -112,15 +116,16 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    sprintf(buf, "%c%s%c%s%c%s", SOH, topic, TOPIC_SEPARATOR, subtopic, STX, msg);
-    buf[strlen(buf) < MSG_BUF_SIZE ? strlen(buf) : MSG_BUF_SIZE - 1] = '\0';
+    snprintf(buf, sizeof(buf), "%c%s%c%s%c%s", SOH, topic, TOPIC_SEPARATOR, subtopic, STX, msg);
 
     nbytes = send(sock_fd, buf, strlen(buf), 0);
     if (nbytes == -1) {
         perror("smbpublish: send");
+        return EXIT_FAILURE;
     } else if (nbytes != strlen(buf)) {
-        printf("smbpublish: Failed to send message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(server_addr->sin_addr),
+        fprintf(stderr, "smbpublish: Failed to send message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(server_addr->sin_addr),
                ntohs(server_addr->sin_port));
+        return EXIT_FAILURE;
     }
 
     return EXIT_SUCCESS;

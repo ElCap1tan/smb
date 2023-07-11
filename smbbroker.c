@@ -14,7 +14,7 @@
 #define STX '\x02'
 
 struct subscription {
-    struct in_addr subscriber;
+    struct in_addr sub_addr;
     uint16_t port;
     char topic[MAX_TOPIC_LEN];
     char subtopic[MAX_TOPIC_LEN];
@@ -63,7 +63,7 @@ int main() {
         memset(&client_addr, 0, sizeof(client_addr));
         nbytes = recvfrom(server_fd, rcv_buf, sizeof(rcv_buf), 0, (struct sockaddr *) &client_addr, &addr_length);
         if (nbytes == -1) {
-            perror("recvfrom()");
+            perror("recvfrom");
             continue;
         }
         rcv_buf[nbytes] = '\0';
@@ -74,18 +74,43 @@ int main() {
         switch (cmd) {
             case 's': {
                 struct subscription *sub;
-                sub = &sub_list[sub_c++];
-                sub->subscriber = client_addr.sin_addr;
-                sub->port = ntohs(client_addr.sin_port);
+                uint8_t exists = 0;
 
-                topic = msg_ptr;
-                if (!(subtopic = spilt_at(msg_ptr, TOPIC_SEPARATOR))) {
-                    subtopic = "#";
+                for (int i = 0; i < sub_c; ++i) {
+                    sub = &sub_list[i];
+                    if (sub->sub_addr.s_addr == client_addr.sin_addr.s_addr) {
+                        exists = 1;
+                    }
                 }
 
-                strcpy(sub->topic, topic);
-                strcpy(sub->subtopic, subtopic);
-                printf("smbbroker: Topic '%s%c%s' added to subscription list for new subscriber %s:%d\n", msg_ptr, TOPIC_SEPARATOR, subtopic, inet_ntoa(sub->subscriber), sub->port);
+                if (!exists) {
+                    sub = &sub_list[sub_c++];
+                    sub->sub_addr = client_addr.sin_addr;
+                    sub->port = ntohs(client_addr.sin_port);
+
+                    topic = msg_ptr;
+                    if (!(subtopic = spilt_at(msg_ptr, TOPIC_SEPARATOR))) {
+                        subtopic = "#";
+                    }
+
+                    snprintf(sub->topic, sizeof(sub->topic), "%s", topic);
+                    snprintf(sub->subtopic, sizeof(sub->subtopic), "%s", subtopic);
+                    printf("smbbroker: Topic '%s%c%s' added to subscription list for new subscriber %s:%d\n", msg_ptr, TOPIC_SEPARATOR, subtopic, inet_ntoa(sub->sub_addr), sub->port);
+                } else {
+                    printf("smbbroker: Subscriber %s:%d already in subscription list with topic '%s%c%s'. Sending acknowledge again...\n", inet_ntoa(sub->sub_addr), sub->port, sub->topic, TOPIC_SEPARATOR, sub->subtopic);
+                }
+
+                snprintf(send_buf, sizeof(send_buf), "A%s%c%s", sub->topic, TOPIC_SEPARATOR, sub->subtopic);
+                msg_len = strlen(send_buf);
+
+                nbytes = sendto(server_fd, send_buf, strlen(send_buf), 0, (struct sockaddr *) &client_addr, sizeof(client_addr));
+                if (nbytes == -1) {
+                    perror("smbbroker: sendto acknowledge");
+                } else if (nbytes != msg_len) {
+                    printf("smbbroker: Failed to send acknowledge to %s:%d\n", inet_ntoa(sub->sub_addr), sub->port);
+                } else {
+                    printf("smbbroker: Acknowledge send to %s:%d\n", inet_ntoa(sub->sub_addr), sub->port);
+                }
                 break;
             }
             case SOH: {
@@ -104,17 +129,17 @@ int main() {
                         if (strcmp(sub->subtopic, subtopic) == 0 || strcmp(sub->subtopic, WILD_CARD) == 0) {
                             memset(&client_addr, 0, sizeof(client_addr));
                             client_addr.sin_family = AF_INET;
-                            client_addr.sin_addr.s_addr = sub->subscriber.s_addr;
+                            client_addr.sin_addr = sub->sub_addr;
                             client_addr.sin_port = htons(sub->port);
 
-                            printf("smbbroker: Relaying message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(sub->subscriber), sub->port);
-                            sprintf(send_buf, "%s%c%s%c%s", topic, TOPIC_SEPARATOR, subtopic, STX, msg);
+                            printf("smbbroker: Relaying message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(sub->sub_addr), sub->port);
+                            snprintf(send_buf, sizeof(send_buf), "%s%c%s%c%s", topic, TOPIC_SEPARATOR, subtopic, STX, msg);
                             msg_len = strlen(send_buf);
                             nbytes = sendto(server_fd, send_buf, msg_len, 0, (struct sockaddr *) &client_addr, sizeof(client_addr));
                             if (nbytes == -1) {
                                 perror("smbbroker: sendto");
                             } else if (nbytes != msg_len) {
-                                printf("smbbroker: Failed to relay message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(sub->subscriber), sub->port);
+                                printf("smbbroker: Failed to relay message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(sub->sub_addr), sub->port);
                             }
                         }
                     }
