@@ -1,0 +1,58 @@
+BROKER
+
+Der Broker smbbroker erzeugt einen UDP-Socket auf Port 8080 und wartet auf Requests der Clients. Diese Requests können entweder vom Typ SUBSCRIBE oder PUBLISH sein und sind wie folgt aufgebaut:
+
+SUBSCRIBE MESSAGE
++-----+----------------+-----------+----------------+
+| CMD |     TOPIC      | SEPERATOR |    SUBTOPIC    |
++-----+----------------+-----------+----------------+
+|  S  | 1 to 512 chars |     /     | 1 to 512 chars |
++-----+----------------+-----------+----------------+
+
+PUBLISH MESSAGE
+(wird sowohl von einem Client, der Daten veröffentlichen will, verwendet, um diese an den Broker zu übermitteln, als auch vom Broker, um die Nachricht an die abonnierenden Clients weiterzuleiten.)
++-----+----------------+-----------+----------------+-----------+-------------------------------------------------------------+
+| CMD |     TOPIC      | SEPERATOR |    SUBTOPIC    | SEPERATOR |                           MESSAGE                           |
++-----+----------------+-----------+----------------+-----------+-------------------------------------------------------------+
+| SOH | 1 to 512 chars |     /     | 1 to 512 chars |    STX    | 3069 to 4091 chars (dependend on topic and subtopic length) |
++-----+----------------+-----------+----------------+-----------+-------------------------------------------------------------+
+
+Dabei sind CMD und SEPERATOR immer einzelne Zeichen. SOH ist das Start-of-heading und STX das Start-of-text Kontrollzeichen (Character code '\x01' und '\x02').
+
+Empfängt der Broker eine SUBSCRIBE Request, pflegt er den Client, welcher diese gesendet hat, in eine von ihm verwaltete Liste ein, welche Adresse und Port des Client-Sockets als auch die abonnierte Topic und Subtopic 
+speichert.
+
+Des Weiteren existiert eine ACKNOWLEDGE Nachricht, um den Empfang einer SUBSCRRIBE Request zu quittieren. Diese wird an den Client zurückgesendet und enthält zum Abgleichen die Topic und Subtopic welche mit der 
+SUBSCRIBE Nachricht empfangen wurden. So lassen sich Übertragungsfehler erkennen, indem der Client die eigene und die empfangene Topic und Subtopic vergleicht. 
+
+ACKNOWLEDGE MESSAGE
++-----+----------------+-----------+----------------+
+| CMD |     TOPIC      | SEPERATOR |    SUBTOPIC    |
++-----+----------------+-----------+----------------+
+|  A  | 1 to 512 chars |     /     | 1 to 512 chars |
++-----+----------------+-----------+----------------+
+
+Sollte die ACKNOWLEDGE Nachricht verloren gehen oder hat der Server die SUBSCRIBE Request nicht empfangen, wird der smbsubscribe Client nach einem Timeout von 15 Sekunden versuchen, die SUBSCRIBE Request erneut zu senden,
+solange bis ein ACKNOWLEDGE vom Broker empfangen wurde. Um mehrfache Speicherung eines Clients in der Liste von Subscribern zu verhindern (wenn nur die ACKNOWLEDGE Nachricht verloren ging), 
+wird überprüft, ob der entsprechende Client bereits in der Liste existiert. Ist dies der Fall, wird nur die ACKNOWLEDGE Nachricht erneut gesendet.
+
+Erhält der Broker eine PUBLISH Request, gleicht er alle Clients in der von ihm verwalteten Liste ab, und falls Topic und Subtopic übereinstimmen, leitet er die empfangene PUBLISH Message an den entsprechenden Client weiter.
+
+
+
+SUBSCRIBER CLIENT
+
+Der Subscriber smbsubscribe sendet eine SUBSCRIBE Request (wie oben bereits beschriben) an der Broker und wartet auf eine Quittierung des Empfangs vom Broker durch eine ACKNOWLEDGE Nachricht. 
+Solange diese nicht erhalten wurde, wird der Client nach einem Timeout von 15 Sekunden die SUBSCRIBE Request wiederholt erneut senden. 
+Wird die ACKNOWLEDGE Nachricht empfangen, gleicht der Clint den Inhalt mit der ihm bekannten Topic und Subtopic ab. Sind beide identisch, war der SUBSCRIBE Vorgang erfolgreich und der Client wartet in Endlosschleife auf den 
+Empfang von weiteren Nachrichten. 
+Sollte vor Empfang der ACKNOWLEDGE Nachricht eine PUBLISH Nachricht mit gesuchter Topic und Subtopic empfangen werden, so wird dies als implizierter ACKNOWLEDGE betrachtet und der Vorgang war ebenfalls erfolgreich. 
+Sollte der Abgleich von Topic und Subtopic in einem von beiden Fällen fehlschlagen, wird der Client beendet, da keine erfolgreiche Abonnierung garantiert werden kann. 
+In diesem Fall sollte der Client vom Nutzer manuell erneut gestartet werden. Eine Abmeldung vom Broker bei Beendigung des Clients erfolgt NICHT!
+
+
+
+PUBLISH CLIENT
+
+Der Publisher smbpublish veröffentlicht eine vom User definierte Nachricht auf der vom User gegebenen Topic und Subtopic mittels einer PUBLISH Request an den Broker und terminiert bei erfolgreichem Senden der Nachricht 
+ohne Ausgabe. Sollte ein Fehler auftreten, so wird dieser auf der Konsole ausgegeben.

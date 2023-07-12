@@ -13,10 +13,13 @@
 #define SERVER_PORT 8080
 #define MSG_BUF_SIZE 4096
 #define MAX_TOPIC_LEN 512
+#define ACK 'A'                 // Used as the start of an ACKNOWLEDGE message
+#define SUB 'S'                 // Used as the start of a SUBSCRIBE message
+#define SOH '\x01'              // Start of heading control char: Used to start a PUBLISH request message
 #define STX '\x02'              // Start of text control char: Used to separate topic and message
 #define TOPIC_SEPARATOR '/'     // Used to separate topic and subtopic
 #define WILD_CARD "#"
-#define TIMEOUT_SECS 15         // Timeout for acknowledge response before new request is send
+#define TIMEOUT_SECS 15         // Timeout for acknowledge response before new request is sent
 
 /**
  * Prints usage information
@@ -110,7 +113,7 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
 int main(int argc, char *argv[]) {
     char buf[MSG_BUF_SIZE];
     char *hostname;
-    char *topic, *subtopic, *msg;
+    char cmd, *topic, *subtopic, *msg;
     struct sockaddr_in *broker_addr;
     struct timeval tv;
     int broker_fd, errcode;
@@ -143,7 +146,7 @@ int main(int argc, char *argv[]) {
     setsockopt(broker_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
     // Build subscription message
-    snprintf(buf, sizeof(buf), "s%s%c%s", topic, TOPIC_SEPARATOR, subtopic);
+    snprintf(buf, sizeof(buf), "%c%s%c%s", SUB, topic, TOPIC_SEPARATOR, subtopic);
 
     puts("Sending subscription request to broker...");
 
@@ -166,12 +169,21 @@ int main(int argc, char *argv[]) {
     // Check acknowledgement reply to see if subscription was added without error
     if (nbytes >= 0) {
         buf[nbytes] = '\0';
-        char cmd = buf[0];
-        char *t = &buf[1];
-        if (cmd == 'A') {
+        cmd = buf[0];
+
+        if (cmd == ACK || cmd == SOH) {
+            char *t = &buf[1];
             char *st = spilt_at(t, TOPIC_SEPARATOR);
+
             if (strcmp(t, topic) == 0 && strcmp(st, subtopic) == 0) {
-                puts("Request was acknowledged by the broker!");
+                if (cmd == ACK) {
+                    puts("Request was acknowledged by the broker!\n");
+                } else {
+                    msg = spilt_at(st, STX);
+                    puts("Request wasn't acknowledged by the broker but a message under the given topic and subtopic"
+                         " was received. Request seems to have reached the server...\n");
+                    printf("[%s] %s\n", topic, msg);
+                }
             } else {
                 puts("Couldn't confirm a successful request! Exiting...");
                 return EXIT_FAILURE;
@@ -187,7 +199,6 @@ int main(int argc, char *argv[]) {
     tv.tv_usec = 0;
     setsockopt(broker_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
-    puts("");
     while (1) { // Listen for messages continuously...
         nbytes = recv(broker_fd, buf, sizeof(buf), 0);
         if (nbytes == -1) {
@@ -195,10 +206,13 @@ int main(int argc, char *argv[]) {
         } else {
             buf[nbytes] = '\0';
 
-            topic = buf;
-            msg = spilt_at(buf, STX);
+            cmd = buf[0];
+            if (cmd == SOH) {
+                topic = &buf[1];
+                msg = spilt_at(buf, STX);
 
-            printf("[%s] %s\n", topic, msg);
+                printf("[%s] %s\n", topic, msg);
+            }
         }
     }
 }

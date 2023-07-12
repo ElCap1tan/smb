@@ -13,6 +13,8 @@
 #define MSG_BUF_SIZE 4096
 #define MAX_SUBSCRIBERS 512
 #define MAX_TOPIC_LEN 512
+#define ACK 'A'                 // Used as the start of an ACKNOWLEDGE message
+#define SUB 'S'                 // Used as the start of a SUBSCRIBE message
 #define SOH '\x01'              // Start of heading control char: Used to start a publish request message
 #define STX '\x02'              // Start of text control char: Used to separate topic and message
 #define TOPIC_SEPARATOR '/'     // Used to separate topic and subtopic
@@ -88,7 +90,7 @@ int main() {
         msg_ptr = &rcv_buf[1];
 
         switch (cmd) {
-            case 's': { // SUBSCRIPTION request
+            case SUB: { // SUBSCRIPTION request
                 struct subscription *sub;
                 uint8_t exists = 0;
 
@@ -120,7 +122,7 @@ int main() {
                 }
 
                 // In any case, we send an acknowledgement message to the client.
-                snprintf(send_buf, sizeof(send_buf), "A%s%c%s", sub->topic, TOPIC_SEPARATOR, sub->subtopic);
+                snprintf(send_buf, sizeof(send_buf), "%c%s%c%s", ACK, sub->topic, TOPIC_SEPARATOR, sub->subtopic);
                 msg_len = strlen(send_buf);
 
                 nbytes = sendto(broker_fd, send_buf, strlen(send_buf), 0, (struct sockaddr *) &client_addr, sizeof(client_addr));
@@ -157,7 +159,7 @@ int main() {
                             client_addr.sin_port = htons(sub->port);
 
                             printf("smbbroker: Relaying message '%s' on topic '%s%c%s' to %s:%d\n", msg, topic, TOPIC_SEPARATOR, subtopic, inet_ntoa(sub->sub_addr), sub->port);
-                            snprintf(send_buf, sizeof(send_buf), "%s%c%s%c%s", topic, TOPIC_SEPARATOR, subtopic, STX, msg);
+                            snprintf(send_buf, sizeof(send_buf), "%c%s%c%s%c%s", SOH, topic, TOPIC_SEPARATOR, subtopic, STX, msg);
                             msg_len = strlen(send_buf);
                             nbytes = sendto(broker_fd, send_buf, msg_len, 0, (struct sockaddr *) &client_addr, sizeof(client_addr));
                             if (nbytes == -1) {
