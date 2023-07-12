@@ -182,7 +182,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // Set socket back to default no timeout behaviour
+    // Set socket back to default no timeout behavior
     tv.tv_sec = 0;
     tv.tv_usec = 0;
     setsockopt(broker_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
