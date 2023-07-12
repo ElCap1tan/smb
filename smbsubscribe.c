@@ -1,3 +1,8 @@
+/**
+ * smbsubscribe.c
+ * Simple message broker subscriber that subscribes to a topic and prints the received messages to the console.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <netdb.h>
@@ -8,11 +13,14 @@
 #define SERVER_PORT 8080
 #define MSG_BUF_SIZE 4096
 #define MAX_TOPIC_LEN 512
-#define STX '\x02'
-#define TOPIC_SEPARATOR '/'
+#define STX '\x02'              // Start of text control char: Used to separate topic and message
+#define TOPIC_SEPARATOR '/'     // Used to separate topic and subtopic
 #define WILD_CARD "#"
-#define TIMEOUT_SECS 15
+#define TIMEOUT_SECS 15         // Timeout for acknowledge response before new request is send
 
+/**
+ * Prints usage information
+ */
 void print_usage(char *argv[]) {
     printf("Usage: '%s broker topic%csubtopic'\n\n"
            "Wildcards ('%s') are supported for topics and subtopics.\n"
@@ -20,14 +28,26 @@ void print_usage(char *argv[]) {
            argv[0], TOPIC_SEPARATOR, WILD_CARD, argv[0], TOPIC_SEPARATOR);
 }
 
+/**
+ * Splits a string in two by replacing the first occurrence of sep with '\0'.
+ *
+ * @param str The string to split
+ * @param sep The separator on which the split should occur
+ * @return A pointer to the start of the second string or null if sep wasn't found
+ */
 char *spilt_at(char *str, char sep) {
     char *sep_ptr = strchr(str, sep);
-    if (!sep_ptr) return sep_ptr;
+    if (!sep_ptr) return NULL;
     sep_ptr[0] = 0;
     return sep_ptr + 1;
 }
 
-// Resolves a hostname string to the corresponding IP address.
+/**
+ * Resolves a hostname or IP address string to the corresponding internet socket address.
+ *
+ * @param hostname The hostname or IP to resolve
+ * @return The internet socket address struct
+ */
 struct sockaddr_in* resolve_hostname(char *hostname) {
     struct addrinfo hints;
     struct addrinfo *res;
@@ -44,9 +64,9 @@ struct sockaddr_in* resolve_hostname(char *hostname) {
     return (struct sockaddr_in *) res->ai_addr;
 }
 
-// Very liberally check arguments for validity to stop the client from sending commands that can't possibly be
-// fulfilled to the server. Only checks the number of provided arguments. If not enough arguments for the given command
-// are provided, exit with failure. Further error handling and reporting is left to the server.
+/**
+ * Checks the args for validity and saves them in the corresponding variables.
+ */
 void validate_args(int argc, char *argv[], char **hostname, char **topic, char **subtopic) {
     if (argc == 1) {
         print_usage(argv);
@@ -70,6 +90,7 @@ void validate_args(int argc, char *argv[], char **hostname, char **topic, char *
 
     *topic = argv[2];
     if (!(*subtopic = spilt_at(*topic, TOPIC_SEPARATOR))) {
+        // If only the main topic was provided without a separator implicitly set subtopic to wildcard
         *subtopic = "#";
     }
 
@@ -90,45 +111,51 @@ int main(int argc, char *argv[]) {
     char buf[MSG_BUF_SIZE];
     char *hostname;
     char *topic, *subtopic, *msg;
-    struct sockaddr_in *server_addr;
+    struct sockaddr_in *broker_addr;
     struct timeval tv;
-    int srv_fd, errcode;
+    int broker_fd, errcode;
     uint addr_length;
     ssize_t nbytes;
 
     validate_args(argc, argv, &hostname, &topic, &subtopic);
 
-    server_addr = resolve_hostname(hostname);
-    server_addr->sin_port = htons(SERVER_PORT);
-    addr_length = sizeof(*server_addr);
+    broker_addr = resolve_hostname(hostname);
+    broker_addr->sin_port = htons(SERVER_PORT);
+    addr_length = sizeof(*broker_addr);
 
-    srv_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (srv_fd < 0) {
+    // Create UDP socket
+    broker_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (broker_fd < 0) {
         perror("Error creating socket");
         return EXIT_FAILURE;
     }
 
-    errcode = connect(srv_fd, (const struct sockaddr *) server_addr, addr_length);
+    // Set the default address to send to and the only address to receive from
+    errcode = connect(broker_fd, (const struct sockaddr *) broker_addr, addr_length);
     if (errcode < 0) {
         perror("Error connecting to server");
         return EXIT_FAILURE;
     }
 
+    // Set socket to timeout after TIMEOUT_SECS when not receiving an acknowledgment from the broker
     tv.tv_sec = TIMEOUT_SECS;
     tv.tv_usec = 0;
-    setsockopt(srv_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(broker_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
+    // Build subscription message
     snprintf(buf, sizeof(buf), "s%s%c%s", topic, TOPIC_SEPARATOR, subtopic);
 
     puts("Sending subscription request to broker...");
+
+    // Send subscription message until broker acknowledges it to make sure the subscription was added to the broker
     do {
-        nbytes = send(srv_fd, buf, strlen(buf), 0);
+        nbytes = send(broker_fd, buf, strlen(buf), 0);
         if (nbytes == -1) {
             perror("send sub request");
             return EXIT_FAILURE;
         }
-        nbytes = recv(srv_fd, buf, sizeof(buf), 0);
-        if (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        nbytes = recv(broker_fd, buf, sizeof(buf), 0);
+        if (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) { // If recv timed out...
             puts("Didn't receive an acknowledge from the broker. Sending request again...");
         } else if (nbytes == -1) {
             perror("recv ack");
@@ -136,6 +163,7 @@ int main(int argc, char *argv[]) {
         }
     } while (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
 
+    // Check acknowledgement reply to see if subscription was added without error
     if (nbytes >= 0) {
         buf[nbytes] = '\0';
         char cmd = buf[0];
@@ -154,12 +182,14 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    // Set socket back to default no timeout behaviour
     tv.tv_sec = 0;
     tv.tv_usec = 0;
-    setsockopt(srv_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(broker_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
-    while (1) {
-        nbytes = recv(srv_fd, buf, sizeof(buf), 0);
+    puts("");
+    while (1) { // Listen for messages continuously...
+        nbytes = recv(broker_fd, buf, sizeof(buf), 0);
         if (nbytes == -1) {
             perror("recv msg");
         } else {
