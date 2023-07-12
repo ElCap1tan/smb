@@ -174,15 +174,15 @@ int main(int argc, char *argv[]) {
         if (cmd == ACK || cmd == SOH) {
             char *t = &buf[1];
             char *st = spilt_at(t, TOPIC_SEPARATOR);
+            msg = spilt_at(st, STX);
 
             if (strcmp(t, topic) == 0 && strcmp(st, subtopic) == 0) {
                 if (cmd == ACK) {
                     puts("Request was acknowledged by the broker!\n");
                 } else {
-                    msg = spilt_at(st, STX);
                     puts("Request wasn't acknowledged by the broker but a message under the given topic and subtopic"
                          " was received. Request seems to have reached the server...\n");
-                    printf("[%s] %s\n", topic, msg);
+                    printf("[%s%c%s] %s\n", topic, TOPIC_SEPARATOR, st, msg);
                 }
             } else {
                 puts("Couldn't confirm a successful request! Exiting...");
