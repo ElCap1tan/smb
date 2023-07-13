@@ -150,8 +150,10 @@ int main(int argc, char *argv[]) {
 
     puts("Sending subscription request to broker...");
 
-    // Send subscription message until broker acknowledges it to make sure the subscription was added to the broker
+    uint8_t acknowledged = 0; // Will be set to 1 when request was successfully acknowledged
     do {
+        // Send subscription message until broker acknowledges it to make sure the subscription was added to the broker
+
         nbytes = send(broker_fd, buf, strlen(buf), 0);
         if (nbytes == -1) {
             perror("send sub request");
@@ -163,36 +165,36 @@ int main(int argc, char *argv[]) {
         } else if (nbytes == -1) {
             perror("recv ack");
             return EXIT_FAILURE;
-        }
-    } while (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
+        } else {
+            // Check acknowledgement reply to see if subscription was added without error
+            buf[nbytes] = '\0';
+            cmd = buf[0];
 
-    // Check acknowledgement reply to see if subscription was added without error
-    if (nbytes >= 0) {
-        buf[nbytes] = '\0';
-        cmd = buf[0];
+            if (cmd == ACK || cmd == SOH) {
+                char *t = &buf[1];
+                char *st = spilt_at(t, TOPIC_SEPARATOR);
+                msg = spilt_at(st, STX);
 
-        if (cmd == ACK || cmd == SOH) {
-            char *t = &buf[1];
-            char *st = spilt_at(t, TOPIC_SEPARATOR);
-            msg = spilt_at(st, STX);
-
-            if (strcmp(t, topic) == 0 && strcmp(st, subtopic) == 0) {
-                if (cmd == ACK) {
-                    puts("Request was acknowledged by the broker!\n");
+                if (strcmp(t, topic) == 0 && strcmp(st, subtopic) == 0) {
+                    if (cmd == ACK) {
+                        puts("Request was acknowledged by the broker!\nListening for messages...\n");
+                    } else {
+                        puts("Request wasn't acknowledged by the broker but a message under the given topic and subtopic"
+                             " was received. Request seems to have reached the server...\n");
+                        printf("[%s%c%s] %s\n", topic, TOPIC_SEPARATOR, st, msg);
+                    }
+                    acknowledged = 1;
                 } else {
-                    puts("Request wasn't acknowledged by the broker but a message under the given topic and subtopic"
-                         " was received. Request seems to have reached the server...\n");
-                    printf("[%s%c%s] %s\n", topic, TOPIC_SEPARATOR, st, msg);
+                    printf("Listening for topic '%s%c%s' but received message on topic '%s%c%s'."
+                           " Subscription wasn't successful. Exiting...\n",
+                           topic, TOPIC_SEPARATOR, subtopic, t, TOPIC_SEPARATOR, st);
+                    return EXIT_FAILURE;
                 }
             } else {
-                puts("Couldn't confirm a successful request! Exiting...");
-                return EXIT_FAILURE;
+                puts("Received message of unknown type. Sending request again...");
             }
         }
-    } else {
-        perror("recv ack");
-        return EXIT_FAILURE;
-    }
+    } while ((nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) || !acknowledged);
 
     // Set socket back to default no timeout behavior
     tv.tv_sec = 0;
@@ -212,6 +214,8 @@ int main(int argc, char *argv[]) {
                 msg = spilt_at(buf, STX);
 
                 printf("[%s] %s\n", topic, msg);
+            } else {
+                puts("[!] Received message of unknown type. Discarding...");
             }
         }
     }

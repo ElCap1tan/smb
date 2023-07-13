@@ -11,11 +11,11 @@ SUBSCRIBE MESSAGE
 
 PUBLISH MESSAGE
 (wird sowohl von einem Client, der Daten veröffentlichen will, verwendet, um diese an den Broker zu übermitteln, als auch vom Broker, um die Nachricht an die abonnierenden Clients weiterzuleiten.)
-+-----+----------------+-----------+----------------+-----------+-------------------------------------------------------------+
-| CMD |     TOPIC      | SEPERATOR |    SUBTOPIC    | SEPERATOR |                           MESSAGE                           |
-+-----+----------------+-----------+----------------+-----------+-------------------------------------------------------------+
-| SOH | 1 to 512 chars |     /     | 1 to 512 chars |    STX    | 3069 to 4091 chars (dependend on topic and subtopic length) |
-+-----+----------------+-----------+----------------+-----------+-------------------------------------------------------------+
++-----+----------------+-----------+----------------+-----------+------------------------------------------------------------------------------+
+| CMD |     TOPIC      | SEPERATOR |    SUBTOPIC    | SEPERATOR |                                   MESSAGE                                    |
++-----+----------------+-----------+----------------+-----------+------------------------------------------------------------------------------+
+| SOH | 1 to 512 chars |     /     | 1 to 512 chars |    STX    | Between 0 and 3068 up to 4090 chars (dependent on topic and subtopic length) |
++-----+----------------+-----------+----------------+-----------+------------------------------------------------------------------------------+
 
 Dabei sind CMD und SEPERATOR immer einzelne Zeichen. SOH ist das Start-of-heading und STX das Start-of-text Kontrollzeichen (Character code '\x01' und '\x02').
 
